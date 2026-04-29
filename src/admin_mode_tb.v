@@ -19,24 +19,33 @@
 // 
 //////////////////////////////////////////////////////////////////////////////////
 
-// 模块名称: admin_mode_tb
-// 描述: admin_mode 的行为仿真脚本。
-// 流程包含：密码错误报警测试、密码正确通过测试、饮料切换以及模拟写入脉冲测试。
 
-module admin_mode_tb;
-
-    // 定义输入信号
+module tb_admin_mode();
     reg clk;
     reg rst_n;
     reg admin_en;
+    
+    // 交互输入
     reg [7:0] switch_in;
     reg btn_confirm;
     reg btn_next;
-
-    // 定义输出信号
+    reg btn_to_view;
+    reg btn_to_modify;
+    reg btn_price;
+    reg btn_stock;
+    reg btn_shelf;
+    
+    // 模拟成员C的存储数据输入
+    reg [7:0] current_stock;
+    reg [7:0] current_price;
+    reg [3:0] sold_out_mask;
+    reg [15:0] total_revenue;
+    
+    wire [1:0] update_type_out;
     wire [7:0] update_data;
     wire [2:0] drink_id;
     wire write_en;
+    wire [31:0] view_data;
     wire alarm_trigger;
     wire [3:0] error_code;
 
@@ -48,91 +57,131 @@ module admin_mode_tb;
         .switch_in(switch_in),
         .btn_confirm(btn_confirm),
         .btn_next(btn_next),
+        .btn_to_view(btn_to_view),
+        .btn_to_modify(btn_to_modify),
+        .btn_price(btn_price),
+        .btn_stock(btn_stock),
+        .btn_shelf(btn_shelf),
+        .current_stock(current_stock),
+        .current_price(current_price),
+        .sold_out_mask(sold_out_mask),
+        .total_revenue(total_revenue),
+        .update_type_out(update_type_out),
         .update_data(update_data),
         .drink_id(drink_id),
         .write_en(write_en),
+        .view_data(view_data),
         .alarm_trigger(alarm_trigger),
         .error_code(error_code)
     );
 
-    // 系统时钟：100MHz，周期为10ns
-    always #5 clk = ~clk;
-
-    // 模拟按键动作（模拟一个维持 10ns 的高电平）
-    task press_confirm;
-        begin
-            btn_confirm = 1;
-            #10; // 维持一个时钟周期
-            btn_confirm = 0;
-            #30; // 动作之间的间隔缓冲
-        end
-    endtask
-
-    task press_next;
-        begin
-            btn_next = 1;
-            #10;
-            btn_next = 0;
-            #30;
-        end
-    endtask
-
-
     initial begin
-        // 初始化所有输入信号
         clk = 0;
+        forever #5 clk = ~clk; // 10ns 周期
+    end
+
+    // 定义按键触发任务 (模拟单脉冲)
+    // 注意：Verilog-2001 中 task 不能直接传 inout 脉冲，所以针对每个按键写小任务最稳妥
+    task press_confirm; begin @(posedge clk); btn_confirm = 1; @(posedge clk); btn_confirm = 0; end endtask
+    task press_next;    begin @(posedge clk); btn_next = 1;    @(posedge clk); btn_next = 0;    end endtask
+    task press_to_view; begin @(posedge clk); btn_to_view = 1; @(posedge clk); btn_to_view = 0; end endtask
+    task press_to_mod;  begin @(posedge clk); btn_to_modify = 1;@(posedge clk); btn_to_modify = 0;end endtask
+    task press_price;   begin @(posedge clk); btn_price = 1;   @(posedge clk); btn_price = 0;   end endtask
+    task press_stock;   begin @(posedge clk); btn_stock = 1;   @(posedge clk); btn_stock = 0;   end endtask
+    task press_shelf;   begin @(posedge clk); btn_shelf = 1;   @(posedge clk); btn_shelf = 0;   end endtask
+
+    // 核心测试流程
+    initial begin
+        // 初始化
         rst_n = 0;
         admin_en = 0;
         switch_in = 8'd0;
-        btn_confirm = 0;
-        btn_next = 0;
-
-        // 全局复位 100ns
-        #100;
-        rst_n = 1;
-        #50;
-
-
-        // 连续3次密码错误
-        admin_en = 1;         // 成员C切换到了管理模式
-        switch_in = 8'h00;    // 正确是 8'hA5
+        btn_confirm = 0; btn_next = 0; btn_to_view = 0; btn_to_modify = 0;
+        btn_price = 0; btn_stock = 0; btn_shelf = 0;
+        
+        // 模拟外部数据（成员C提供）
+        current_stock = 8'd50;  // 50瓶
+        current_price = 8'd12;  // 12元
+        sold_out_mask = 4'b0010;// 1号饮料(第2种)停售
+        total_revenue = 16'd520;// 收入520
+        
+        #20 rst_n = 1;
         #20;
-
-        press_confirm; // 错1次，error_code 变为 4'hE
-        press_confirm; // 错2次，error_code 变为 4'hE
-        press_confirm; // 错3次，alarm_trigger 变为 1，error_code 变为 4'hA
-        #50;
-
-
-        // 切出管理模式，解除报警
-        admin_en = 0;         // 切回主菜单
-        #50;                  // alarm_trigger 恢复 0，error_code 恢复 0
-
-
-        // 管理员操作(登录>选饮料>改数据)
-        admin_en = 1;         // 再次进入管理模式
-        switch_in = 8'hA5;    // 正确密码 (10100101)
-        #20;
-        press_confirm;        // 验证通过，状态变为 S_SELECT
         
-        // 切换饮料 ID
-        press_next;           // drink_id 变成 1
-        press_next;           // drink_id 变成 2
-        
-        // 选定 drink_id 为 2 的饮料，准备修改
-        press_confirm;        // 状态变为 S_MODIFY
-        
-        // 输入新参数 (假设新价格为 8'h3C)
-        switch_in = 8'h3C;
-        #20;                  // update_data 实时变成 8'h3C
-        
-        // 确认保存
-        press_confirm;        // 状态变为 S_SAVE
-        #50;
+        $display("仿真开始");
 
+        // 测试一：输错密码触发报警
+        $display("1. 测试密码校验与报警机制");
+        @(posedge clk); admin_en = 1; // 进入管理模式
+        
+        switch_in = 8'h00; // 错误密码
+        #20 press_confirm(); // 错1次
+        #20 press_confirm(); // 错2次
+        #20 press_confirm(); // 错3次触发报警 (S_ALARM)
+        #40;
+        if(alarm_trigger) $display("   -> 报警触发成功！");
+        
+        // 退出重进，清除报警
+        @(posedge clk); admin_en = 0;
+        #40;
+        @(posedge clk); admin_en = 1; 
 
-        admin_en = 0; 
-        #100;
-        $stop; // 结束仿真
+        // 测试二：正确密码登录与查看模式
+        $display("2. 测试正确密码登录");
+        switch_in = 8'hA5; // 正确密码
+        #20 press_confirm();
+        #40;
+        $display("   -> 登录成功，进入 S_SELECT");
+        
+        $display("3. 进入查看模式 (S_VIEW)");
+        #20 press_to_view();
+        
+        // 拨动开关查看不同信息
+        switch_in = 8'b0000_0001; #40; // 看库存
+        switch_in = 8'b0000_0010; #40; // 看价格
+        
+        // 退出查看，回选择界面
+        #20 press_confirm();
+        #40;
+
+        // 测试三：修改模式 - 改价格
+        $display("4. 测试修改价格 (0号饮料)");
+        #20 press_to_mod(); // 进修改模式
+        #20 press_price();  // 按下价格修改键
+        
+        switch_in = 8'd15;  // 设新价格为 15
+        #40 press_confirm();// 确认保存 (产生 write_en 脉冲)
+        #40;
+        $display("   -> 检查波形：write_en 应出现脉冲，update_type_out=1, update_data=15");
+
+        // 测试四：修改模式 - 切ID并补货
+        $display("5. 测试切换饮料并补货 (1号饮料)");
+        #20 press_to_mod(); // 再次进入修改模式
+        #20 press_next();   // 切换到 1 号饮料
+        #20 press_stock();  // 按下补货键
+        
+        switch_in = 8'd20;  // 补货 20 瓶
+        #40 press_confirm();// 确认保存
+        #40;
+        $display("   -> 检查波形：write_en 脉冲，update_type_out=2, update_data=20, drink_id=1");
+
+        // 测试五：修改模式 - 停售/恢复
+        $display("6. 测试停售状态切换 (1号饮料)");
+        #20 press_to_mod(); // 进修改模式
+        #20 press_shelf();  // 按下状态切换键
+        
+        #40 press_confirm();// 确认保存
+        #40;
+        $display("   -> 检查波形：write_en 脉冲，update_type_out=3, update_data=1");
+
+        // 测试六：退出管理模式测试复位状态
+        $display("7. 退出管理模式测试 (全局清零)");
+        @(posedge clk); admin_en = 0;
+        #60;
+        $display("   -> 检查波形：所有关键控制信号应清零");
+
+        $display("=== 仿真结束 ===");
+        $stop; // 停止仿真
     end
+
 endmodule
