@@ -11,10 +11,15 @@
 //   S4 -> btn_cancel  : cancel current order / return from message states
 //   SW[7:0] -> switch_in : amount input in PAY state
 //
+// Recommended four drinks and demo-friendly prices:
+//   0 COLA: price 4, stock 5, display COLA04S5
+//   1 SODA: price 5, stock 6, display SOdA05S6
+//   2 TEA : price 3, stock 8, display tEA 03S8
+//   3 H2O : price 2, stock 9, display H2O 02S9
+//
 // Display convention:
 //   view_data is 8 characters packed as 8 x 5-bit character IDs.
 //   The order is {digit7,digit6,...,digit0}, where digit7 is the leftmost digit.
-//   Character IDs are listed below in localparam definitions.
 //////////////////////////////////////////////////////////////////////////////////
 
 module sales_mode #(
@@ -25,16 +30,16 @@ module sales_mode #(
     parameter [31:0] LED_STEP_CYCLES            = 32'd12_500_000
 )(
     input  wire        clk,
-    input  wire        rst_n,       // active-low reset
-    input  wire        sales_en,    // 1 means current global mode is sales mode
+    input  wire        rst_n,
+    input  wire        sales_en,
 
-    // User inputs. All button inputs should be debounced one-cycle pulses.
-    input  wire [7:0]  switch_in,   // payment amount in PAY state
-    input  wire        btn_confirm, // S0: confirm/select/pay/take
-    input  wire        btn_prev,    // S1: previous drink page
-    input  wire        btn_next,    // S2: next drink page
-    input  wire        btn_pay,     // S3: add switch_in to balance
-    input  wire        btn_cancel,  // S4: cancel/back
+    // User inputs. These should be debounced one-cycle pulses by top/C.
+    input  wire [7:0]  switch_in,
+    input  wire        btn_confirm,
+    input  wire        btn_prev,
+    input  wire        btn_next,
+    input  wire        btn_pay,
+    input  wire        btn_cancel,
 
     // Product data from top/register_file. Four drinks only: 0~3.
     input  wire [7:0]  price0,
@@ -45,16 +50,16 @@ module sales_mode #(
     input  wire [3:0]  stock1,
     input  wire [3:0]  stock2,
     input  wire [3:0]  stock3,
-    input  wire [3:0]  enabled_mask, // 1 means this drink is enabled/on-sale
+    input  wire [3:0]  enabled_mask, // 1 means this drink is on sale
 
     // Outputs to register_file/top.
     output reg  [1:0]  drink_id,
-    output reg         sale_we,       // one-cycle pulse after successful pickup
+    output reg         sale_we,
     output reg  [1:0]  sale_idx,
     output reg  [7:0]  sale_amount,
-    output reg         refund_pulse,  // one-cycle pulse for cancel/timeout refund
+    output reg         refund_pulse,
     output reg  [7:0]  refund_amount,
-    output reg         exit_to_main,  // one-cycle pulse, optional for top controller
+    output reg         exit_to_main,
 
     // Outputs for display/debug.
     output reg  [7:0]  paid_amount,
@@ -67,9 +72,7 @@ module sales_mode #(
     output reg  [3:0]  countdown_sec
 );
 
-    // -------------------------------------------------------------------------
     // State encoding
-    // -------------------------------------------------------------------------
     localparam S_IDLE      = 4'd0;
     localparam S_SELECT    = 4'd1;
     localparam S_CHECK     = 4'd2;
@@ -80,9 +83,7 @@ module sales_mode #(
     localparam S_REFUND    = 4'd7;
     localparam S_ERROR     = 4'd8;
 
-    // -------------------------------------------------------------------------
     // Error encoding
-    // -------------------------------------------------------------------------
     localparam ERR_NONE        = 4'd0;
     localparam ERR_OFF_SALE    = 4'd1;
     localparam ERR_NO_STOCK    = 4'd2;
@@ -90,10 +91,7 @@ module sales_mode #(
     localparam ERR_BAD_PRICE   = 4'd4;
     localparam ERR_TIMEOUT     = 4'd5;
 
-    // -------------------------------------------------------------------------
-    // Character ID encoding for view_data. Display driver should map these IDs
-    // to seven-segment patterns. digit7 is leftmost; digit0 is rightmost.
-    // -------------------------------------------------------------------------
+    // Character ID encoding for view_data. C/display driver maps these IDs to seg7 patterns.
     localparam [4:0] CH_0     = 5'd0;
     localparam [4:0] CH_1     = 5'd1;
     localparam [4:0] CH_2     = 5'd2;
@@ -105,9 +103,9 @@ module sales_mode #(
     localparam [4:0] CH_8     = 5'd8;
     localparam [4:0] CH_9     = 5'd9;
     localparam [4:0] CH_A     = 5'd10;
-    localparam [4:0] CH_B     = 5'd11; // shown as b
+    localparam [4:0] CH_B     = 5'd11;
     localparam [4:0] CH_C     = 5'd12;
-    localparam [4:0] CH_D     = 5'd13; // shown as d
+    localparam [4:0] CH_D     = 5'd13;
     localparam [4:0] CH_E     = 5'd14;
     localparam [4:0] CH_F     = 5'd15;
     localparam [4:0] CH_H     = 5'd16;
@@ -115,12 +113,12 @@ module sales_mode #(
     localparam [4:0] CH_O     = 5'd18;
     localparam [4:0] CH_P     = 5'd19;
     localparam [4:0] CH_S     = 5'd20;
-    localparam [4:0] CH_T     = 5'd21; // shown as t
-    localparam [4:0] CH_R     = 5'd22; // shown as r
+    localparam [4:0] CH_T     = 5'd21;
+    localparam [4:0] CH_R     = 5'd22;
     localparam [4:0] CH_BLANK = 5'd23;
     localparam [4:0] CH_DASH  = 5'd24;
     localparam [4:0] CH_U     = 5'd25;
-    localparam [4:0] CH_N     = 5'd26; // shown as n
+    localparam [4:0] CH_N     = 5'd26;
     localparam [4:0] CH_I     = 5'd27;
     localparam [4:0] CH_Y     = 5'd28;
 
@@ -133,9 +131,6 @@ module sales_mode #(
 
     wire any_button = btn_confirm | btn_prev | btn_next | btn_pay | btn_cancel;
 
-    // -------------------------------------------------------------------------
-    // Helper functions
-    // -------------------------------------------------------------------------
     function [4:0] digit_char;
         input [3:0] value;
         begin
@@ -181,9 +176,7 @@ module sales_mode #(
         end
     endfunction
 
-    // -------------------------------------------------------------------------
     // Current product data mux
-    // -------------------------------------------------------------------------
     always @(*) begin
         case (drink_id)
             2'd0: begin current_price = price0; current_stock = stock0; end
@@ -204,7 +197,7 @@ module sales_mode #(
             flow_limit = (LED_STEP_CYCLES < 8) ? 1 : (LED_STEP_CYCLES / 8);
     end
 
-    // Display countdown as 5,4,3,2,1,0 by threshold. This avoids expensive division.
+    // Display countdown as 5,4,3,2,1,0 by thresholds.
     always @(*) begin
         if (current_state != S_WAIT_TAKE)
             countdown_sec = 4'd0;
@@ -222,9 +215,7 @@ module sales_mode #(
             countdown_sec = 4'd0;
     end
 
-    // -------------------------------------------------------------------------
     // Main FSM
-    // -------------------------------------------------------------------------
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             current_state <= S_IDLE;
@@ -243,7 +234,6 @@ module sales_mode #(
             led_timer    <= 32'd0;
             led_pos      <= 4'd0;
         end else begin
-            // Default one-cycle pulses.
             sale_we      <= 1'b0;
             refund_pulse <= 1'b0;
             exit_to_main <= 1'b0;
@@ -258,7 +248,6 @@ module sales_mode #(
                 led_timer     <= 32'd0;
                 led_pos       <= 4'd0;
             end else begin
-                // General inactivity timer. SELECT is the sales home page.
                 if (current_state == S_SELECT || current_state == S_IDLE || current_state == S_WAIT_TAKE) begin
                     idle_timer <= 32'd0;
                 end else if (any_button) begin
@@ -322,7 +311,6 @@ module sales_mode #(
                             error_code    <= ERR_TIMEOUT;
                             current_state <= S_REFUND;
                         end else if (btn_pay) begin
-                            // Saturating addition to avoid overflow.
                             if (paid_amount + switch_in < paid_amount)
                                 paid_amount <= 8'hFF;
                             else
@@ -351,7 +339,6 @@ module sales_mode #(
 
                     S_WAIT_TAKE: begin
                         if (btn_confirm) begin
-                            // The user has taken the drink. Only now do we count the sale.
                             sale_we       <= 1'b1;
                             sale_idx      <= drink_id;
                             sale_amount   <= current_price;
@@ -399,22 +386,15 @@ module sales_mode #(
                         end
                     end
 
-                    default: begin
-                        current_state <= S_IDLE;
-                    end
+                    default: current_state <= S_IDLE;
                 endcase
             end
         end
     end
 
-    // -------------------------------------------------------------------------
-    // LED and display output generation
-    // -------------------------------------------------------------------------
+    // Drink name characters optimized for seven-segment display.
     reg [4:0] n3, n2, n1, n0;
-
     always @(*) begin
-        // Drink names optimized for seven-segment display.
-        // 0: COLA, 1: SOdA, 2: tEA, 3: H2O
         case (drink_id)
             2'd0: begin n3 = CH_C; n2 = CH_O; n1 = CH_L;     n0 = CH_A;     end
             2'd1: begin n3 = CH_S; n2 = CH_O; n1 = CH_D;     n0 = CH_A;     end
@@ -424,6 +404,7 @@ module sales_mode #(
         endcase
     end
 
+    // LED and display output generation.
     always @(*) begin
         led_out   = 16'h0000;
         view_data = pack8(CH_BLANK,CH_BLANK,CH_BLANK,CH_BLANK,CH_BLANK,CH_BLANK,CH_BLANK,CH_BLANK);
@@ -435,11 +416,10 @@ module sales_mode #(
             end
 
             S_SELECT: begin
-                // Layout: [name4][price2][S][stock]
-                // Example: COLA30S5, SOdA25S6, tEA 20S8, H2O 15S9
+                // Layout: [name4][price2][S][stock], e.g. COLA04S5.
                 led_out   = 16'h0001 << drink_id;
                 view_data = pack8(n3, n2, n1, n0,
-                                  digit_char(current_price / 10),
+                                  digit_char((current_price / 10) % 10),
                                   digit_char(current_price % 10),
                                   CH_S,
                                   digit_char(current_stock));
@@ -451,8 +431,7 @@ module sales_mode #(
             end
 
             S_PAY: begin
-                // Layout: bAL[balance2]P[price2]
-                // Example: bAL20P30
+                // Layout: bAL[balance2]P[price2], e.g. bAL04P04.
                 led_out   = progress_bar(paid_amount, current_price);
                 view_data = pack8(CH_B, CH_A, CH_L,
                                   digit_char((paid_amount / 10) % 10),
@@ -468,7 +447,6 @@ module sales_mode #(
             end
 
             S_WAIT_TAKE: begin
-                // Layout: PUSH[blank][blank][countdown]
                 led_out   = 16'h0001 << led_pos;
                 view_data = pack8(CH_P,CH_U,CH_S,CH_H,CH_BLANK,CH_BLANK,CH_BLANK,digit_char(countdown_sec));
             end
