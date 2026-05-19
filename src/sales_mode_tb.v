@@ -112,11 +112,12 @@ module tb_sales_mode();
     // Mock register_file update.
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            // 0=COLA, 1=SODA, 2=TEA, 3=H2O
-            price0 <= 8'd30; stock0 <= 4'd5;
-            price1 <= 8'd25; stock1 <= 4'd6;
-            price2 <= 8'd20; stock2 <= 4'd8;
-            price3 <= 8'd15; stock3 <= 4'd9;
+            // Demo-friendly prices within 0~10:
+            // 0=COLA price 4, 1=SODA price 5, 2=TEA price 3, 3=H2O price 2
+            price0 <= 8'd4; stock0 <= 4'd5;
+            price1 <= 8'd5; stock1 <= 4'd6;
+            price2 <= 8'd3; stock2 <= 4'd8;
+            price3 <= 8'd2; stock3 <= 4'd9;
         end else if (sale_we) begin
             case (sale_idx)
                 2'd0: stock0 <= stock0 - 1'b1;
@@ -199,8 +200,8 @@ module tb_sales_mode();
         $display("=== Test 2: normal purchase ===");
         press_confirm;
         wait_state(S_PAY);
-        add_money(8'd10);
-        add_money(8'd20);
+        add_money(8'd1);
+        add_money(8'd3);
         press_confirm;
         wait_state(S_WAIT_TAKE);
         if (state_code != S_WAIT_TAKE) begin
@@ -209,8 +210,8 @@ module tb_sales_mode();
         end
         press_confirm; // S0 means take item in WAIT_TAKE
         repeat (3) @(posedge clk);
-        if (state_code != S_COMPLETE || sale_idx != 2'd0 || sale_amount != 8'd30) begin
-            $display("FAIL: pickup should complete sale for item 0 amount 30.");
+        if (state_code != S_COMPLETE || sale_idx != 2'd0 || sale_amount != 8'd4) begin
+            $display("FAIL: pickup should complete sale for item 0 amount 4.");
             fail_count = fail_count + 1;
         end else begin
             $display("PASS: normal purchase completed.");
@@ -220,7 +221,7 @@ module tb_sales_mode();
         $display("=== Test 3: insufficient payment ===");
         press_confirm;
         wait_state(S_PAY);
-        add_money(8'd5);
+        add_money(8'd1);
         press_confirm;
         repeat (3) @(posedge clk);
         if (state_code != S_PAY || error_code != ERR_NOT_ENOUGH) begin
@@ -234,10 +235,10 @@ module tb_sales_mode();
         back_to_select;
 
         $display("=== Test 4: inactivity timeout in PAY ===");
-        press_next; repeat (2) @(posedge clk); // item 1
+        press_next; repeat (2) @(posedge clk); // item 1, price 5
         press_confirm;
         wait_state(S_PAY);
-        add_money(8'd10);
+        add_money(8'd2);
         repeat (50) @(posedge clk);
         if (state_code != S_REFUND || error_code != ERR_TIMEOUT) begin
             $display("FAIL: inactivity in PAY should refund and show timeout.");
@@ -248,11 +249,11 @@ module tb_sales_mode();
         back_to_select;
 
         $display("=== Test 5: pickup timeout refund ===");
-        press_next; repeat (2) @(posedge clk); // item 2
-        press_next; repeat (2) @(posedge clk); // item 3
+        press_next; repeat (2) @(posedge clk); // item 2, price 3
+        press_next; repeat (2) @(posedge clk); // item 3, price 2
         press_confirm;
         wait_state(S_PAY);
-        add_money(8'd15);
+        add_money(8'd2);
         press_confirm;
         wait_state(S_WAIT_TAKE);
         repeat (70) @(posedge clk);
@@ -265,7 +266,6 @@ module tb_sales_mode();
         back_to_select;
 
         $display("=== Test 6: off-sale item ===");
-        // select item 1 and disable it
         // previous test leaves us on item 3, so two NEXT pulses wrap to item 1
         press_next; repeat (2) @(posedge clk); // item 0
         press_next; repeat (2) @(posedge clk); // item 1
